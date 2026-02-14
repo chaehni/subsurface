@@ -368,9 +368,8 @@ void DiveLocationFilterProxyModel::setCurrentLocation(location_t loc)
 
 bool DiveLocationFilterProxyModel::filterAcceptsRow(int source_row, const QModelIndex&) const
 {
-	// We don't want to show the first two entries (add dive site with that name)
-	// if there is no filter text.
-	if (filter.isEmpty() && source_row <= 1)
+	// Don't show the synthetic "create new dive site" row if there is no filter text.
+	if (filter.isEmpty() && source_row == 0)
 		return false;
 
 	if (source_row == 0)
@@ -382,15 +381,15 @@ bool DiveLocationFilterProxyModel::filterAcceptsRow(int source_row, const QModel
 
 bool DiveLocationFilterProxyModel::lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const
 {
-	// The first two entries are special - we never want to change their order
-	if (source_left.row() <= 1 || source_right.row() <= 1)
+	// The first entry is special - we never want to change its order
+	if (source_left.row() == 0 || source_right.row() == 0)
 		return source_left.row() < source_right.row();
 
 	// If there is a current location, sort by that - otherwise use the provided column
 	if (has_location(&currentLocation)) {
-		// The dive sites are -2 because of the first two items.
-		auto loc1 = (divelog.sites)[source_left.row() - 2]->location;
-		auto loc2 = (divelog.sites)[source_right.row() - 2]->location;
+		// Dive sites are offset by one because of the first synthetic item.
+		auto loc1 = (divelog.sites)[source_left.row() - 1]->location;
+		auto loc2 = (divelog.sites)[source_right.row() - 1]->location;
 		return get_distance(loc1, currentLocation) < get_distance(loc2, currentLocation);
 	}
 	return source_left.data().toString().compare(source_right.data().toString(), Qt::CaseInsensitive) < 0;
@@ -412,15 +411,15 @@ QVariant DiveLocationModel::data(const QModelIndex &index, int role) const
 	static const QIcon plusIcon(":list-add-icon");
 	static const QIcon geoCode(":geotag-icon");
 
-	if (index.row() < 0 || index.row() >= (int)divelog.sites.size() + 2)
+	if (index.row() < 0 || index.row() >= (int)divelog.sites.size() + 1)
 		return QVariant();
 
-	if (index.row() <= 1) { // two special cases.
+	if (index.row() == 0) { // one special case.
 		if (index.column() == LocationInformationModel::DIVESITE)
 			return QVariant::fromValue<dive_site *>(RECENTLY_ADDED_DIVESITE);
 		switch (role) {
 		case Qt::DisplayRole:
-			return new_ds_value[index.row()];
+			return new_ds_value;
 		case Qt::ToolTipRole:
 			return current_dive && current_dive->dive_site ?
 				tr("Create a new dive site, copying relevant information from the current dive.") :
@@ -431,8 +430,8 @@ QVariant DiveLocationModel::data(const QModelIndex &index, int role) const
 		return QVariant();
 	}
 
-	// The dive sites are -2 because of the first two items.
-	const auto &ds = (divelog.sites)[index.row() - 2];
+	// Dive sites are offset by one because of the first synthetic item.
+	const auto &ds = (divelog.sites)[index.row() - 1];
 	return LocationInformationModel::getDiveSiteData(*ds, index.column(), role);
 }
 
@@ -443,7 +442,7 @@ int DiveLocationModel::columnCount(const QModelIndex&) const
 
 int DiveLocationModel::rowCount(const QModelIndex&) const
 {
-	return (int)divelog.sites.size() + 2;
+	return (int)divelog.sites.size() + 1;
 }
 
 Qt::ItemFlags DiveLocationModel::flags(const QModelIndex &index) const
@@ -460,10 +459,10 @@ bool DiveLocationModel::setData(const QModelIndex &index, const QVariant &value,
 {
 	if (!index.isValid())
 		return false;
-	if (index.row() > 1)
+	if (index.row() != 0)
 		return false;
 
-	new_ds_value[index.row()] = value.toString();
+	new_ds_value = value.toString();
 
 	dataChanged(index, index);
 	return true;
@@ -493,6 +492,7 @@ DiveLocationLineEdit::DiveLocationLineEdit(QWidget *parent) : QLineEdit(parent),
 
 	connect(this, &QLineEdit::textEdited, this, &DiveLocationLineEdit::setTemporaryDiveSiteName);
 	connect(view, &QAbstractItemView::activated, this, &DiveLocationLineEdit::itemActivated);
+	connect(view, &QAbstractItemView::clicked, this, &DiveLocationLineEdit::itemActivated);
 	connect(view, &QAbstractItemView::entered, this, &DiveLocationLineEdit::entered);
 	connect(view, &DiveLocationListView::currentIndexChanged, this, &DiveLocationLineEdit::currentChanged);
 }
@@ -562,38 +562,11 @@ void DiveLocationLineEdit::refreshDiveSiteCache()
 	model->resetModel();
 }
 
-static struct dive_site *get_dive_site_name_start_which_str(const QString &str)
-{
-	for (const auto &ds: divelog.sites) {
-		QString dsName = QString::fromStdString(ds->name);
-		if (dsName.toLower().startsWith(str.toLower()))
-			return ds.get();
-	}
-	return NULL;
-}
-
 void DiveLocationLineEdit::setTemporaryDiveSiteName(const QString &name)
 {
-	// This function fills the first two entries with potential names of
-	// a dive site to be generated. The first entry is simply the entered
-	// text. The second entry is the first known dive site name starting
-	// with the entered text.
+	// Fill the first synthetic entry with the currently entered text.
 	QModelIndex i0 = model->index(0, LocationInformationModel::NAME);
-	QModelIndex i1 = model->index(1, LocationInformationModel::NAME);
 	model->setData(i0, name);
-
-	// Note: if i1_name stays empty, the line will automatically
-	// be filtered out by the proxy filter, as it does not contain
-	// the user entered text.
-	QString i1_name;
-	if (struct dive_site *ds = get_dive_site_name_start_which_str(name)) {
-		const QString orig_name = QString::fromStdString(ds->name).toLower();
-		const QString new_name = name.toLower();
-		if (new_name != orig_name)
-			i1_name = QString::fromStdString(ds->name);
-	}
-
-	model->setData(i1, i1_name);
 	proxy->setFilter(name);
 	fixPopupPosition();
 	if (!view->isVisible()) {
@@ -704,6 +677,19 @@ struct dive_site *DiveLocationLineEdit::currDiveSite() const
 {
 	// If there is no text, this corresponds to the empty dive site
 	return text().trimmed().isEmpty() ? nullptr : currDs;
+}
+
+struct dive_site *DiveLocationLineEdit::currentPopupDiveSite() const
+{
+	QModelIndex idx = view->currentIndex();
+	if (!idx.isValid())
+		return nullptr;
+
+	dive_site *ds = idx.data(LocationInformationModel::DIVESITE_ROLE).value<dive_site *>();
+	if (!ds || ds == RECENTLY_ADDED_DIVESITE)
+		return nullptr;
+
+	return ds;
 }
 
 DiveLocationListView::DiveLocationListView(QWidget *parent) : QListView(parent)

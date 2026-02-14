@@ -436,8 +436,8 @@ void LocationFilterDelegate::paint(QPainter *painter, const QStyleOptionViewItem
 	struct dive_site *ds =
 		index.model()->data(index.model()->index(index.row(), LocationInformationModel::DIVESITE)).value<dive_site *>();
 	bool currentDiveHasGPS = has_location(&currentLocation);
-	//Special case: do not show name, but instead, show
-	if (index.row() < 2) {
+	// Special case: first row is the synthetic "create new dive site" entry.
+	if (index.row() < 1) {
 		diveSiteName = index.data().toString();
 		bottomText = index.data(Qt::ToolTipRole).toString();
 		goto print_part;

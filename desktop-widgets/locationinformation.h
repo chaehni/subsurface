@@ -70,7 +70,7 @@ public:
 	void resetModel();
 	bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override;
 private:
-	QString new_ds_value[2];
+	QString new_ds_value;
 	Qt::ItemFlags flags(const QModelIndex &index) const override;
 	QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -96,6 +96,7 @@ public:
 	bool eventFilter(QObject*, QEvent*);
 	void itemActivated(const QModelIndex& index);
 	struct dive_site *currDiveSite() const;
+	struct dive_site *currentPopupDiveSite() const;
 	void fixPopupPosition();
 	void setCurrentDiveSite(struct dive *d);
 	void showAllSites();

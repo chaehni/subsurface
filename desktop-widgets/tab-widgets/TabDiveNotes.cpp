@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "TabDiveNotes.h"
 #include "maintab.h"
+#include "core/divelog.h"
 #include "core/divesite.h"
 #include "core/qthelper.h"
 #include "core/pref.h"
@@ -390,10 +391,27 @@ void TabDiveNotes::on_location_diveSiteSelected()
 		return;
 
 	struct dive_site *newDs = ui.location->currDiveSite();
-	if (newDs == RECENTLY_ADDED_DIVESITE)
-		divesEdited(Command::editDiveSiteNew(ui.location->text(), false));
-	else
+	if (newDs == RECENTLY_ADDED_DIVESITE) {
+		QString name = ui.location->text().trimmed();
+		if (name.isEmpty()) {
+			divesEdited(Command::editDiveSite(nullptr, false));
+			return;
+		}
+		// Prefer the currently highlighted popup entry if available.
+		// This gives us an exact site object (and UUID), not just a name match.
+		if (dive_site *selected = ui.location->currentPopupDiveSite()) {
+			divesEdited(Command::editDiveSite(selected, false));
+			return;
+		}
+		// If the typed text is exactly an existing site, reuse it even if
+		// activation did not fire and currDiveSite() is still the sentinel.
+		if (dive_site *existing = divelog.sites.get_by_name(name.toStdString()))
+			divesEdited(Command::editDiveSite(existing, false));
+		else
+			divesEdited(Command::editDiveSiteNew(name, false));
+	} else {
 		divesEdited(Command::editDiveSite(newDs, false));
+	}
 }
 
 void TabDiveNotes::on_locationPopupButton_clicked()
